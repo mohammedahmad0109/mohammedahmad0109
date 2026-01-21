@@ -25,6 +25,8 @@ async def photo_handler(update, context):
     if context.user_data.get('step') != 'await_photo':
         return
 
+    await update.message.reply_text("Processing, please wait...")
+
     photo = update.message.photo[-1]
     file = await photo.get_file()
     await file.download_to_drive('photo.jpg')
@@ -33,14 +35,35 @@ async def photo_handler(update, context):
         'image1': './photo.jpg'
     }
 
-    url = veriftools.generate_image(generator_url, user, context.user_data['data'], images)
+    loop = asyncio.get_running_loop()
+
+    url = await loop.run_in_executor(
+        None,
+        lambda: veriftools.generate_image(
+            generator_url,
+            user,
+            context.user_data['data'],
+            images
+        )
+    )
 
     if url:
-        veriftools.download_image(url, 'result_image.jpg')
-        await update.message.reply_photo(open('result_image.jpg', 'rb'))
+        await loop.run_in_executor(
+            None,
+            lambda: veriftools.download_image(url, 'result_image.jpg')
+        )
 
+        await update.message.reply_photo(
+            open('result_image.jpg', 'rb')
+        )
+    else:
+        await update.message.reply_text("Generation failed.")
+
+    # cleanup
+    import os
     os.remove('photo.jpg')
     os.remove('result_image.jpg')
+    context.user_data.clear()
 
 async def start(update, context):
     await update.message.reply_text("Use /gen to generate")
