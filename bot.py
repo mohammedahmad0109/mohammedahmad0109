@@ -4,14 +4,10 @@ import time
 import asyncio
 import requests
 from requests.auth import HTTPBasicAuth
-from telegram.ext import (
-    Application,
-    CommandHandler,
-    MessageHandler,
-    filters,
-)
+from telegram.ext import Application, CommandHandler, MessageHandler, filters
 
 # ================= CONFIG =================
+
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 VERIF_LOGIN = os.getenv("VERIF_LOGIN")
 VERIF_PASSWORD = os.getenv("VERIF_PASSWORD")
@@ -24,20 +20,30 @@ AUTH = HTTPBasicAuth(VERIF_LOGIN, VERIF_PASSWORD)
 def api_generate(generator: str, data: dict, image_path: str | None = None) -> str:
     files = {
         "generator": (None, generator),
-        "data": (None, json.dumps(data)),
+        "data": (None, json.dumps(data), "application/json"),
     }
 
-    if image_path:
-        files["image1"] = open(image_path, "rb")
+    image_file = None
+    try:
+        if image_path:
+            image_file = open(image_path, "rb")
+            files["image1"] = image_file
 
-    r = requests.post(
-        f"{API_BASE}/generate/",
-        files=files,
-        auth=AUTH,
-        timeout=30,
-    )
-    r.raise_for_status()
-    return r.json()["task_id"]
+        r = requests.post(
+            f"{API_BASE}/generate/",
+            files=files,
+            auth=AUTH,
+            timeout=30,
+        )
+
+        if r.status_code != 201:
+            raise Exception(f"Generate failed {r.status_code}: {r.text}")
+
+        return r.json()["task_id"]
+
+    finally:
+        if image_file:
+            image_file.close()
 
 
 def api_wait(task_id: str) -> dict:
@@ -48,13 +54,14 @@ def api_wait(task_id: str) -> dict:
             timeout=30,
         )
         r.raise_for_status()
-        data = r.json()
+        payload = r.json()
 
-        if data["status"] in ("READY", "DONE"):
-            return data
+        status = payload.get("status")
+        if status in ("READY", "DONE"):
+            return payload
 
-        if data["status"] == "ERROR":
-            raise Exception(data)
+        if status == "ERROR":
+            raise Exception(payload)
 
         time.sleep(2)
 
@@ -66,7 +73,10 @@ def api_pay(task_id: str) -> str:
         auth=AUTH,
         timeout=30,
     )
-    r.raise_for_status()
+
+    if r.status_code != 201:
+        raise Exception(f"Payment failed {r.status_code}: {r.text}")
+
     return r.json()["image_url"]
 
 
@@ -80,7 +90,6 @@ def download_image(url: str, path: str):
 
 async def start(update, context):
     await update.message.reply_text(
-        "Commands:\n"
         "/gen  – passport generator (send photo)\n"
         "/test – bank_check API test"
     )
@@ -130,7 +139,7 @@ async def photo_handler(update, context):
         )
 
     except Exception as e:
-        await update.message.reply_text(f"Error: {e}")
+        await update.message.reply_text(f"❌ {e}")
 
     finally:
         for f in ("photo.jpg", "result.jpg"):
@@ -174,7 +183,7 @@ async def test_command(update, context):
         )
 
     except Exception as e:
-        await update.message.reply_text(f"Test failed: {e}")
+        await update.message.reply_text(f"❌ {e}")
 
     finally:
         if os.path.exists("test.jpg"):
