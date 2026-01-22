@@ -15,9 +15,7 @@ VERIF_PASSWORD = os.getenv("VERIF_PASSWORD")
 API_BASE = "https://api.veriftools.fans/api/integration"
 AUTH = HTTPBasicAuth(VERIF_LOGIN, VERIF_PASSWORD)
 
-HEADERS = {
-    "Accept": "application/json",
-}
+HEADERS = {"Accept": "application/json"}
 
 # ================= API HELPERS =================
 
@@ -55,27 +53,6 @@ def api_generate(generator: str, data: dict, image_path: str | None = None) -> s
             image_file.close()
 
 
-def api_wait(task_id: str) -> dict:
-    while True:
-        r = requests.get(
-            f"{API_BASE}/generation-status/{task_id}/",
-            auth=AUTH,
-            headers=HEADERS,
-            timeout=30,
-        )
-        r.raise_for_status()
-        payload = r.json()
-
-        status = payload.get("status")
-        if status in ("READY", "DONE"):
-            return payload
-
-        if status == "ERROR":
-            raise Exception(payload)
-
-        time.sleep(2)
-
-
 def api_pay(task_id: str) -> str:
     r = requests.post(
         f"{API_BASE}/pay-for-result/",
@@ -89,6 +66,31 @@ def api_pay(task_id: str) -> str:
         raise Exception(f"Payment failed {r.status_code}: {r.text}")
 
     return r.json()["image_url"]
+
+
+def api_wait_done(task_id: str, timeout=120):
+    start = time.time()
+    while True:
+        r = requests.get(
+            f"{API_BASE}/generation-status/{task_id}/",
+            auth=AUTH,
+            headers=HEADERS,
+            timeout=30,
+        )
+        r.raise_for_status()
+        payload = r.json()
+
+        status = payload.get("status")
+        if status == "DONE":
+            return
+
+        if status == "ERROR":
+            raise Exception(payload)
+
+        if time.time() - start > timeout:
+            raise Exception("Timeout waiting for DONE")
+
+        time.sleep(2)
 
 
 def download_image(url: str, path: str):
@@ -140,8 +142,8 @@ async def photo_handler(update, context):
             ),
         )
 
-        await loop.run_in_executor(None, lambda: api_wait(task_id))
         image_url = await loop.run_in_executor(None, lambda: api_pay(task_id))
+        await loop.run_in_executor(None, lambda: api_wait_done(task_id))
         await loop.run_in_executor(None, lambda: download_image(image_url, "result.jpg"))
 
         await update.message.reply_photo(
@@ -184,8 +186,8 @@ async def test_command(update, context):
             ),
         )
 
-        await loop.run_in_executor(None, lambda: api_wait(task_id))
         image_url = await loop.run_in_executor(None, lambda: api_pay(task_id))
+        await loop.run_in_executor(None, lambda: api_wait_done(task_id))
         await loop.run_in_executor(None, lambda: download_image(image_url, "test.jpg"))
 
         await update.message.reply_photo(
