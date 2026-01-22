@@ -58,7 +58,9 @@ def wait_for_preview(task_id, timeout=180):
         )
         r.raise_for_status()
         payload = r.json()
-
+        
+        print("STATUS PAYLOAD:", payload)
+        
         # ✅ EXACT curl condition
         if payload.get("task_status") == "end" and payload.get("image_url"):
             return payload["image_url"]
