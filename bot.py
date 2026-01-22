@@ -15,6 +15,10 @@ VERIF_PASSWORD = os.getenv("VERIF_PASSWORD")
 API_BASE = "https://api.veriftools.fans/api/integration"
 AUTH = HTTPBasicAuth(VERIF_LOGIN, VERIF_PASSWORD)
 
+HEADERS = {
+    "Accept": "application/json",
+}
+
 # ================= API HELPERS =================
 
 def api_generate(generator: str, data: dict, image_path: str | None = None) -> str:
@@ -27,16 +31,21 @@ def api_generate(generator: str, data: dict, image_path: str | None = None) -> s
     try:
         if image_path:
             image_file = open(image_path, "rb")
-            files["image1"] = image_file
+            files["image1"] = (
+                os.path.basename(image_path),
+                image_file,
+                "image/jpeg",
+            )
 
         r = requests.post(
             f"{API_BASE}/generate/",
             files=files,
             auth=AUTH,
+            headers=HEADERS,
             timeout=30,
         )
 
-        if r.status_code != 201:
+        if r.status_code not in (200, 201):
             raise Exception(f"Generate failed {r.status_code}: {r.text}")
 
         return r.json()["task_id"]
@@ -51,6 +60,7 @@ def api_wait(task_id: str) -> dict:
         r = requests.get(
             f"{API_BASE}/generation-status/{task_id}/",
             auth=AUTH,
+            headers=HEADERS,
             timeout=30,
         )
         r.raise_for_status()
@@ -71,10 +81,11 @@ def api_pay(task_id: str) -> str:
         f"{API_BASE}/pay-for-result/",
         json={"task_id": task_id},
         auth=AUTH,
+        headers=HEADERS,
         timeout=30,
     )
 
-    if r.status_code != 201:
+    if r.status_code not in (200, 201):
         raise Exception(f"Payment failed {r.status_code}: {r.text}")
 
     return r.json()["image_url"]
