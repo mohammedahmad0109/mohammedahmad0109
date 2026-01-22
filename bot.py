@@ -53,8 +53,9 @@ def wait_and_get_watermark(task_id):
         r.raise_for_status()
         data = r.json()
 
-        if data.get("task_status") == "end":
-            return data["image_url"]  # 👈 WATERMARKED IMAGE
+        # ✅ THIS IS THE REAL CONDITION
+        if "image_url" in data and data["image_url"]:
+            return data["image_url"]
 
         time.sleep(2)
 
