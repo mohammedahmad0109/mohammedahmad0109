@@ -1,6 +1,7 @@
+import os
+import asyncio
 from telegram.ext import Application, CommandHandler, MessageHandler, filters
 from veriftools import veriftools
-import os
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 
