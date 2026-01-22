@@ -4,7 +4,12 @@ import time
 import asyncio
 import requests
 from requests.auth import HTTPBasicAuth
-from telegram.ext import Application, CommandHandler, MessageHandler, filters
+from telegram.ext import (
+    Application,
+    CommandHandler,
+    MessageHandler,
+    filters,
+)
 
 # ================= CONFIG =================
 
@@ -43,7 +48,7 @@ def api_generate(generator: str, data: dict, image_path: str | None = None) -> s
             timeout=30,
         )
 
-        if r.status_code not in (200, 201):
+        if r.status_code != 201:
             raise Exception(f"Generate failed {r.status_code}: {r.text}")
 
         return r.json()["task_id"]
@@ -53,22 +58,7 @@ def api_generate(generator: str, data: dict, image_path: str | None = None) -> s
             image_file.close()
 
 
-def api_pay(task_id: str) -> str:
-    r = requests.post(
-        f"{API_BASE}/pay-for-result/",
-        json={"task_id": task_id},
-        auth=AUTH,
-        headers=HEADERS,
-        timeout=30,
-    )
-
-    if r.status_code not in (200, 201):
-        raise Exception(f"Payment failed {r.status_code}: {r.text}")
-
-    return r.json()["image_url"]
-
-
-def api_wait_done(task_id: str, timeout=120):
+def api_wait_until_done(task_id: str, timeout=180):
     start = time.time()
     while True:
         r = requests.get(
@@ -80,17 +70,32 @@ def api_wait_done(task_id: str, timeout=120):
         r.raise_for_status()
         payload = r.json()
 
-        status = payload.get("status")
-        if status == "DONE":
-            return
+        status = payload.get("task_status")
+        if status == "end":
+            return payload
 
-        if status == "ERROR":
+        if status == "error":
             raise Exception(payload)
 
         if time.time() - start > timeout:
-            raise Exception("Timeout waiting for DONE")
+            raise Exception("Timeout waiting for generation")
 
         time.sleep(2)
+
+
+def api_pay(task_id: str) -> str:
+    r = requests.post(
+        f"{API_BASE}/pay-for-result/",
+        json={"task_id": task_id},
+        auth=AUTH,
+        headers=HEADERS,
+        timeout=30,
+    )
+
+    if r.status_code != 201:
+        raise Exception(f"Payment failed {r.status_code}: {r.text}")
+
+    return r.json()["image_url"]
 
 
 def download_image(url: str, path: str):
@@ -111,7 +116,7 @@ async def start(update, context):
 async def gen(update, context):
     context.user_data.clear()
     context.user_data["await_photo"] = True
-    await update.message.reply_text("Send face photo.")
+    await update.message.reply_text("📸 Send face photo.")
 
 
 async def photo_handler(update, context):
@@ -119,7 +124,7 @@ async def photo_handler(update, context):
         await update.message.reply_text("Use /gen first.")
         return
 
-    await update.message.reply_text("Processing...")
+    await update.message.reply_text("⏳ Generating...")
 
     photo = update.message.photo[-1]
     tg_file = await photo.get_file()
@@ -142,8 +147,8 @@ async def photo_handler(update, context):
             ),
         )
 
+        await loop.run_in_executor(None, lambda: api_wait_until_done(task_id))
         image_url = await loop.run_in_executor(None, lambda: api_pay(task_id))
-        await loop.run_in_executor(None, lambda: api_wait_done(task_id))
         await loop.run_in_executor(None, lambda: download_image(image_url, "result.jpg"))
 
         await update.message.reply_photo(
@@ -162,7 +167,7 @@ async def photo_handler(update, context):
 
 
 async def test_command(update, context):
-    await update.message.reply_text("Running API test...")
+    await update.message.reply_text("🧪 Running API test...")
 
     loop = asyncio.get_running_loop()
 
@@ -174,7 +179,7 @@ async def test_command(update, context):
                 {
                     "FULLNAME": "John Doe",
                     "ADD1": "123 Anywhere Street",
-                    "ADD2": "Anytown, CA 12345",
+                    "ADD2": "Anytown",
                     "BANK": "1",
                     "CHEQUENUMBER": "123456789",
                     "MICRCODE": "12345678912345678",
@@ -186,8 +191,8 @@ async def test_command(update, context):
             ),
         )
 
+        await loop.run_in_executor(None, lambda: api_wait_until_done(task_id))
         image_url = await loop.run_in_executor(None, lambda: api_pay(task_id))
-        await loop.run_in_executor(None, lambda: api_wait_done(task_id))
         await loop.run_in_executor(None, lambda: download_image(image_url, "test.jpg"))
 
         await update.message.reply_photo(
