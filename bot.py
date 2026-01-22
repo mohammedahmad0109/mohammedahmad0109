@@ -47,7 +47,7 @@ def generate_task():
     return r.json()["task_id"]
 
 
-def wait_for_preview(task_id, timeout=180):
+def wait_for_preview(task_id, timeout=300):
     start = time.time()
 
     while True:
@@ -61,15 +61,17 @@ def wait_for_preview(task_id, timeout=180):
 
         print("STATUS PAYLOAD:", payload)
 
-        # ✅ THIS MATCHES CURL EXACTLY
-        if payload.get("image_url"):
-            return payload["image_url"]
+        if payload.get("task_status") == "end":
+            image_url = payload.get("image_url")
+            if not image_url:
+                raise Exception("Task ended but no image_url returned")
+            return image_url
 
         if time.time() - start > timeout:
             raise TimeoutError("Preview timeout exceeded")
 
         time.sleep(2)
-
+        
 def download_preview_to_memory(url):
     r = requests.get(url, timeout=30)
     r.raise_for_status()
