@@ -1,6 +1,7 @@
 import os
-import asyncio
+import json
 import time
+import asyncio
 import requests
 from requests.auth import HTTPBasicAuth
 from telegram.ext import (
@@ -10,22 +11,20 @@ from telegram.ext import (
     filters,
 )
 
-# ================== CONFIG ==================
+# ================= CONFIG =================
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 VERIF_LOGIN = os.getenv("VERIF_LOGIN")
 VERIF_PASSWORD = os.getenv("VERIF_PASSWORD")
 
 API_BASE = "https://api.veriftools.fans/api/integration"
+AUTH = HTTPBasicAuth(VERIF_LOGIN, VERIF_PASSWORD)
 
-auth = HTTPBasicAuth(VERIF_LOGIN, VERIF_PASSWORD)
+# ================= API HELPERS =================
 
-# ================== HELPERS ==================
-
-def create_task(generator, data, image_path=None):
-    files = {}
-    payload = {
-        "generator": generator,
-        "data": (None, str(data), "application/json"),
+def api_generate(generator: str, data: dict, image_path: str | None = None) -> str:
+    files = {
+        "generator": (None, generator),
+        "data": (None, json.dumps(data)),
     }
 
     if image_path:
@@ -33,19 +32,19 @@ def create_task(generator, data, image_path=None):
 
     r = requests.post(
         f"{API_BASE}/generate/",
-        files={**payload, **files},
-        auth=auth,
+        files=files,
+        auth=AUTH,
         timeout=30,
     )
     r.raise_for_status()
     return r.json()["task_id"]
 
 
-def wait_for_ready(task_id):
+def api_wait(task_id: str) -> dict:
     while True:
         r = requests.get(
             f"{API_BASE}/generation-status/{task_id}/",
-            auth=auth,
+            auth=AUTH,
             timeout=30,
         )
         r.raise_for_status()
@@ -60,36 +59,38 @@ def wait_for_ready(task_id):
         time.sleep(2)
 
 
-def pay_for_result(task_id):
+def api_pay(task_id: str) -> str:
     r = requests.post(
         f"{API_BASE}/pay-for-result/",
         json={"task_id": task_id},
-        auth=auth,
+        auth=AUTH,
         timeout=30,
     )
     r.raise_for_status()
     return r.json()["image_url"]
 
 
-def download_image(url, path):
+def download_image(url: str, path: str):
     r = requests.get(url, timeout=30)
     r.raise_for_status()
     with open(path, "wb") as f:
         f.write(r.content)
 
-# ================== COMMANDS ==================
+# ================= BOT COMMANDS =================
 
 async def start(update, context):
     await update.message.reply_text(
         "Commands:\n"
-        "/gen – passport generator (send photo)\n"
+        "/gen  – passport generator (send photo)\n"
         "/test – bank_check API test"
     )
+
 
 async def gen(update, context):
     context.user_data.clear()
     context.user_data["await_photo"] = True
     await update.message.reply_text("Send face photo.")
+
 
 async def photo_handler(update, context):
     if not context.user_data.get("await_photo"):
@@ -107,7 +108,7 @@ async def photo_handler(update, context):
     try:
         task_id = await loop.run_in_executor(
             None,
-            lambda: create_task(
+            lambda: api_generate(
                 "uk_passport",
                 {
                     "SURNAME": "DOE",
@@ -119,8 +120,8 @@ async def photo_handler(update, context):
             ),
         )
 
-        await loop.run_in_executor(None, lambda: wait_for_ready(task_id))
-        image_url = await loop.run_in_executor(None, lambda: pay_for_result(task_id))
+        await loop.run_in_executor(None, lambda: api_wait(task_id))
+        image_url = await loop.run_in_executor(None, lambda: api_pay(task_id))
         await loop.run_in_executor(None, lambda: download_image(image_url, "result.jpg"))
 
         await update.message.reply_photo(
@@ -137,6 +138,7 @@ async def photo_handler(update, context):
                 os.remove(f)
         context.user_data.clear()
 
+
 async def test_command(update, context):
     await update.message.reply_text("Running API test...")
 
@@ -145,7 +147,7 @@ async def test_command(update, context):
     try:
         task_id = await loop.run_in_executor(
             None,
-            lambda: create_task(
+            lambda: api_generate(
                 "bank_check",
                 {
                     "FULLNAME": "John Doe",
@@ -162,8 +164,8 @@ async def test_command(update, context):
             ),
         )
 
-        await loop.run_in_executor(None, lambda: wait_for_ready(task_id))
-        image_url = await loop.run_in_executor(None, lambda: pay_for_result(task_id))
+        await loop.run_in_executor(None, lambda: api_wait(task_id))
+        image_url = await loop.run_in_executor(None, lambda: api_pay(task_id))
         await loop.run_in_executor(None, lambda: download_image(image_url, "test.jpg"))
 
         await update.message.reply_photo(
@@ -178,7 +180,7 @@ async def test_command(update, context):
         if os.path.exists("test.jpg"):
             os.remove("test.jpg")
 
-# ================== APP ==================
+# ================= APP =================
 
 app = Application.builder().token(BOT_TOKEN).build()
 
