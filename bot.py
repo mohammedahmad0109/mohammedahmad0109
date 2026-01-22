@@ -58,18 +58,17 @@ def wait_for_preview(task_id, timeout=180):
         )
         r.raise_for_status()
         payload = r.json()
-        
+
         print("STATUS PAYLOAD:", payload)
-        
-        # ✅ EXACT curl condition
-        if payload.get("task_status") == "end" and payload.get("image_url"):
+
+        # ✅ THIS MATCHES CURL EXACTLY
+        if payload.get("image_url"):
             return payload["image_url"]
 
         if time.time() - start > timeout:
             raise TimeoutError("Preview timeout exceeded")
 
         time.sleep(2)
-
 
 def download_preview_to_memory(url):
     r = requests.get(url, timeout=30)
