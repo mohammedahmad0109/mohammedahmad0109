@@ -1,5 +1,6 @@
 import os
 import json
+import time
 import asyncio
 import shlex
 import requests
@@ -48,7 +49,6 @@ def parse_kv_args(text: str) -> dict:
     for arg in args:
         if "=" not in arg:
             raise ValueError(f"Invalid argument: {arg}")
-
         k, v = arg.split("=", 1)
         data[k.upper()] = v
 
@@ -63,6 +63,20 @@ def download_image(url: str) -> BytesIO:
     bio.name = "result.jpg"
     bio.seek(0)
     return bio
+
+
+def wait_until_task_exists(task_id: str, timeout=10):
+    start = time.time()
+    while True:
+        r = session.get(
+            f"{API_BASE}/generation-status/{task_id}/",
+            timeout=10,
+        )
+        if r.status_code == 200:
+            return
+        if time.time() - start > timeout:
+            return
+        time.sleep(0.5)
 
 # ========= GENERATOR 1 (UNCHANGED) =========
 
@@ -95,9 +109,7 @@ def generate_task_gen1():
 
 
 def wait_for_image(task_id: str, timeout=300):
-    import time
     start = time.time()
-
     while True:
         r = session.get(
             f"{API_BASE}/generation-status/{task_id}/",
@@ -114,7 +126,7 @@ def wait_for_image(task_id: str, timeout=300):
 
         time.sleep(2)
 
-# ========= GENERATOR 2 =========
+# ========= GENERATOR 2 (FIXED FLOW) =========
 
 def generate_task_gen2(data: dict, image_bytes: BytesIO | None):
     files = {
@@ -148,7 +160,7 @@ def pay_for_result(task_id: str) -> str:
 
     image_url = r.json().get("image_url")
     if not image_url:
-        raise Exception("No image_url returned after payment")
+        raise Exception("Payment succeeded but no image_url returned")
 
     return image_url
 
@@ -168,7 +180,7 @@ async def handle_photo(update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "📸 Image received.\n\n"
         "Please enter this command:\n\n"
-        "fn=firstname ln=lastname dob=DOB sex=M/F\n\n"
+        "fn=firstname ln=lastname dob=DD.MM.YYYY sex=M/F\n\n"
         "Example:\n"
         "/test2 fn=Jane ln=Dawson dob=\"12.12.1999\" sex=F"
     )
@@ -176,7 +188,6 @@ async def handle_photo(update, context: ContextTypes.DEFAULT_TYPE):
 
 async def test(update, context: ContextTypes.DEFAULT_TYPE):
     loop = asyncio.get_running_loop()
-
     try:
         await update.message.reply_text("🚀 Generator 1 running…")
 
@@ -201,7 +212,6 @@ async def test2(update, context: ContextTypes.DEFAULT_TYPE):
     try:
         if not context.args:
             await update.message.reply_text(
-                "Usage:\n"
                 "/test2 fn=firstname ln=lastname dob=\"DD.MM.YYYY\" sex=M/F"
             )
             return
@@ -212,18 +222,20 @@ async def test2(update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("💳 Generating & paying…")
 
         task_id = await loop.run_in_executor(
-            None,
-            lambda: generate_task_gen2(data, image_bytes)
+            None, lambda: generate_task_gen2(data, image_bytes)
+        )
+
+        # 🔑 IMPORTANT FIX — WAIT BEFORE PAYING
+        await loop.run_in_executor(
+            None, lambda: wait_until_task_exists(task_id)
         )
 
         image_url = await loop.run_in_executor(
-            None,
-            lambda: pay_for_result(task_id)
+            None, lambda: pay_for_result(task_id)
         )
 
         photo = await loop.run_in_executor(
-            None,
-            lambda: download_image(image_url)
+            None, lambda: download_image(image_url)
         )
 
         await update.message.reply_photo(
