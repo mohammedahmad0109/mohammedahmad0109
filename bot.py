@@ -151,19 +151,28 @@ def generate_task_gen2(data: dict, image_bytes: BytesIO | None):
 
 
 def pay_for_result(task_id: str) -> str:
+    payload = {
+        "task_id": task_id,
+        "generator": "uk_passport_new_fast",  # 🔑 REQUIRED
+    }
+
     r = session.post(
         f"{API_BASE}/pay-for-result/",
-        json={"task_id": task_id},
+        json=payload,
         timeout=30,
     )
-    r.raise_for_status()
+
+    if r.status_code != 201:
+        raise Exception(
+            f"PAY ERROR {r.status_code}: {r.text}"
+        )
 
     image_url = r.json().get("image_url")
     if not image_url:
         raise Exception("Payment succeeded but no image_url returned")
 
     return image_url
-
+    
 # ========= TELEGRAM HANDLERS =========
 
 async def handle_photo(update, context: ContextTypes.DEFAULT_TYPE):
