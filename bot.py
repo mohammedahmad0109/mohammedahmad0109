@@ -13,7 +13,10 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 VERIF_LOGIN = os.getenv("VERIF_LOGIN")
 VERIF_PASSWORD = os.getenv("VERIF_PASSWORD")
 
-API_BASE = "https://api.veriftools.fans/api/integration"
+# ========= API CONFIG =========
+# UPDATED BASE URL (from your Swagger)
+
+API_BASE = "https://backend.com.de/api/integration"
 AUTH = HTTPBasicAuth(VERIF_LOGIN, VERIF_PASSWORD)
 
 # ========= API HELPERS =========
@@ -71,7 +74,8 @@ def wait_for_preview(task_id, timeout=300):
             raise TimeoutError("Preview timeout exceeded")
 
         time.sleep(2)
-        
+
+
 def download_preview_to_memory(url):
     r = requests.get(url, timeout=30)
     r.raise_for_status()
