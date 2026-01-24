@@ -118,7 +118,7 @@ def wait_for_image(task_id: str, timeout=300):
 
 def generate_task_gen2(data: dict, image_bytes: BytesIO | None):
     files = {
-        "generator": (None, "testingforchatgpt1"),
+        "generator": (None, "uk_passport_new_fast"),
         "data": (
             None,
             json.dumps(data),
