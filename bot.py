@@ -128,7 +128,6 @@ def pay_for_result(task_id: str) -> str:
 
     headers = {
         "X-CSRFToken": csrf,
-        "Content-Type": "application/json",
     }
 
     r = session.post(
