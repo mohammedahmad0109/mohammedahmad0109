@@ -35,7 +35,7 @@ session = requests.Session()
 session.auth = AUTH
 session.headers.update({"User-Agent": "telegram-generator-bot"})
 
-# ========= MEMORY STORAGE =========
+# ========= MEMORY =========
 
 user_images = {}  # user_id -> BytesIO
 
@@ -48,6 +48,7 @@ def parse_kv_args(text: str) -> dict:
     for arg in args:
         if "=" not in arg:
             raise ValueError(f"Invalid argument: {arg}")
+
         k, v = arg.split("=", 1)
         data[k.upper()] = v
 
@@ -113,7 +114,7 @@ def wait_for_image(task_id: str, timeout=300):
 
         time.sleep(2)
 
-# ========= GENERATOR 2 (CORRECT FLOW) =========
+# ========= GENERATOR 2 =========
 
 def generate_task_gen2(data: dict, image_bytes: BytesIO | None):
     files = {
@@ -145,11 +146,9 @@ def pay_for_result(task_id: str) -> str:
     )
     r.raise_for_status()
 
-    payload = r.json()
-    image_url = payload.get("image_url")
-
+    image_url = r.json().get("image_url")
     if not image_url:
-        raise Exception("Payment succeeded but no image_url returned")
+        raise Exception("No image_url returned after payment")
 
     return image_url
 
@@ -166,7 +165,13 @@ async def handle_photo(update, context: ContextTypes.DEFAULT_TYPE):
 
     user_images[update.effective_user.id] = bio
 
-    await update.message.reply_text("📸 Image saved. Now run /test2 …")
+    await update.message.reply_text(
+        "📸 Image received.\n\n"
+        "Please enter this command:\n\n"
+        "fn=firstname ln=lastname dob=DOB sex=M/F\n\n"
+        "Example:\n"
+        "/test2 fn=Jane ln=Dawson dob=\"12.12.1999\" sex=F"
+    )
 
 
 async def test(update, context: ContextTypes.DEFAULT_TYPE):
@@ -196,7 +201,8 @@ async def test2(update, context: ContextTypes.DEFAULT_TYPE):
     try:
         if not context.args:
             await update.message.reply_text(
-                "/test2 LN=DOE FN=\"JOHN LEE\" LOL=123456 SEX=M"
+                "Usage:\n"
+                "/test2 fn=firstname ln=lastname dob=\"DD.MM.YYYY\" sex=M/F"
             )
             return
 
@@ -222,7 +228,7 @@ async def test2(update, context: ContextTypes.DEFAULT_TYPE):
 
         await update.message.reply_photo(
             photo=photo,
-            caption="✅ FINAL RESULT (PAID)",
+            caption="✅ FINAL RESULT",
         )
 
     except Exception as e:
