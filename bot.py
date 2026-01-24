@@ -34,7 +34,10 @@ AUTH = HTTPBasicAuth(VERIF_LOGIN, VERIF_PASSWORD)
 
 session = requests.Session()
 session.auth = AUTH
-session.headers.update({"User-Agent": "telegram-generator-bot"})
+session.headers.update({
+    "User-Agent": "telegram-generator-bot",
+    "Accept": "application/json",
+})
 
 # ========= MEMORY =========
 
@@ -78,55 +81,25 @@ def wait_until_task_exists(task_id: str, timeout=10):
             return
         time.sleep(0.5)
 
-# ========= GENERATOR 1 (UNCHANGED) =========
 
-def generate_task_gen1():
-    r = session.post(
-        f"{API_BASE}/generate/",
-        files={
-            "generator": (None, "bank_check"),
-            "data": (
-                None,
-                json.dumps({
-                    "FULLNAME": "John Doe",
-                    "ADD1": "123 Anywhere Street",
-                    "ADD2": "Anytown",
-                    "BANK": "1",
-                    "CHEQUENUMBER": "123456789",
-                    "MICRCODE": "12345678912345678",
-                    "NUMBER": "00123",
-                    "BACKGROUND": "Photo",
-                    "BACKGROUND_NUMBER": "1",
-                    "VOID": "ON",
-                }),
-                "application/json",
-            ),
-        },
-        timeout=30,
+def get_csrf_token() -> str:
+    """
+    Swagger does a GET first to obtain csrftoken cookie.
+    We must do the same.
+    """
+    r = session.get(
+        f"{API_BASE}/pay-for-result/",
+        timeout=10,
     )
     r.raise_for_status()
-    return r.json()["task_id"]
 
+    csrf = session.cookies.get("csrftoken")
+    if not csrf:
+        raise Exception("CSRF token not found in cookies")
 
-def wait_for_image(task_id: str, timeout=300):
-    start = time.time()
-    while True:
-        r = session.get(
-            f"{API_BASE}/generation-status/{task_id}/",
-            timeout=30,
-        )
-        r.raise_for_status()
+    return csrf
 
-        image_url = r.json().get("image_url")
-        if image_url:
-            return image_url
-
-        if time.time() - start > timeout:
-            raise TimeoutError("Image timeout")
-
-        time.sleep(2)
-
-# ========= GENERATOR 2 (FIXED FLOW) =========
+# ========= GENERATOR 2 =========
 
 def generate_task_gen2(data: dict, image_bytes: BytesIO | None):
     files = {
@@ -151,28 +124,29 @@ def generate_task_gen2(data: dict, image_bytes: BytesIO | None):
 
 
 def pay_for_result(task_id: str) -> str:
-    payload = {
-        "task_id": task_id,
-        "generator": "uk_passport_new_fast",  # 🔑 REQUIRED
+    csrf = get_csrf_token()
+
+    headers = {
+        "X-CSRFToken": csrf,
+        "Content-Type": "application/json",
     }
 
     r = session.post(
         f"{API_BASE}/pay-for-result/",
-        json=payload,
+        json={"task_id": task_id},
+        headers=headers,
         timeout=30,
     )
 
     if r.status_code != 201:
-        raise Exception(
-            f"PAY ERROR {r.status_code}: {r.text}"
-        )
+        raise Exception(f"PAY ERROR {r.status_code}: {r.text}")
 
     image_url = r.json().get("image_url")
     if not image_url:
         raise Exception("Payment succeeded but no image_url returned")
 
     return image_url
-    
+
 # ========= TELEGRAM HANDLERS =========
 
 async def handle_photo(update, context: ContextTypes.DEFAULT_TYPE):
@@ -195,25 +169,6 @@ async def handle_photo(update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-async def test(update, context: ContextTypes.DEFAULT_TYPE):
-    loop = asyncio.get_running_loop()
-    try:
-        await update.message.reply_text("🚀 Generator 1 running…")
-
-        task_id = await loop.run_in_executor(None, generate_task_gen1)
-        image_url = await loop.run_in_executor(
-            None, lambda: wait_for_image(task_id)
-        )
-        photo = await loop.run_in_executor(
-            None, lambda: download_image(image_url)
-        )
-
-        await update.message.reply_photo(photo=photo)
-
-    except Exception as e:
-        await update.message.reply_text(f"❌ ERROR:\n{e}")
-
-
 async def test2(update, context: ContextTypes.DEFAULT_TYPE):
     loop = asyncio.get_running_loop()
     user_id = update.effective_user.id
@@ -234,7 +189,6 @@ async def test2(update, context: ContextTypes.DEFAULT_TYPE):
             None, lambda: generate_task_gen2(data, image_bytes)
         )
 
-        # 🔑 IMPORTANT FIX — WAIT BEFORE PAYING
         await loop.run_in_executor(
             None, lambda: wait_until_task_exists(task_id)
         )
@@ -259,7 +213,6 @@ async def test2(update, context: ContextTypes.DEFAULT_TYPE):
 
 app = Application.builder().token(BOT_TOKEN).build()
 
-app.add_handler(CommandHandler("test", test))
 app.add_handler(CommandHandler("test2", test2))
 app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
 
