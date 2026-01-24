@@ -82,22 +82,22 @@ def wait_until_task_exists(task_id: str, timeout=10):
         time.sleep(0.5)
 
 
-def get_csrf_token() -> str:
+def ensure_csrf():
     """
-    Swagger does a GET first to obtain csrftoken cookie.
-    We must do the same.
+    Fetch CSRF cookie from a safe GET endpoint.
+    DO NOT call pay-for-result with GET.
     """
+    if session.cookies.get("csrftoken"):
+        return
+
     r = session.get(
-        f"{API_BASE}/pay-for-result/",
+        f"{API_BASE}/generator-information/uk_passport_new_fast/",
         timeout=10,
     )
     r.raise_for_status()
 
-    csrf = session.cookies.get("csrftoken")
-    if not csrf:
-        raise Exception("CSRF token not found in cookies")
-
-    return csrf
+    if not session.cookies.get("csrftoken"):
+        raise Exception("Failed to obtain CSRF token")
 
 # ========= GENERATOR 2 =========
 
@@ -124,10 +124,13 @@ def generate_task_gen2(data: dict, image_bytes: BytesIO | None):
 
 
 def pay_for_result(task_id: str) -> str:
-    csrf = get_csrf_token()
+    ensure_csrf()
+
+    csrf = session.cookies.get("csrftoken")
 
     headers = {
         "X-CSRFToken": csrf,
+        "Referer": "https://backend.com.de/",
     }
 
     r = session.post(
@@ -145,7 +148,7 @@ def pay_for_result(task_id: str) -> str:
         raise Exception("Payment succeeded but no image_url returned")
 
     return image_url
-
+    
 # ========= TELEGRAM HANDLERS =========
 
 async def handle_photo(update, context: ContextTypes.DEFAULT_TYPE):
