@@ -1,6 +1,5 @@
 import os
 import json
-import time
 import asyncio
 import shlex
 import requests
@@ -36,31 +35,26 @@ session = requests.Session()
 session.auth = AUTH
 session.headers.update({"User-Agent": "telegram-generator-bot"})
 
-# ========= IN-MEMORY STORAGE =========
+# ========= MEMORY STORAGE =========
 
 user_images = {}  # user_id -> BytesIO
 
 # ========= HELPERS =========
 
 def parse_kv_args(text: str) -> dict:
-    """
-    Parses:
-    LN=DOE FN="JOHN LEE" DOB=123 SEX=M
-    """
     args = shlex.split(text)
     data = {}
 
     for arg in args:
         if "=" not in arg:
             raise ValueError(f"Invalid argument: {arg}")
-
-        key, value = arg.split("=", 1)
-        data[key.upper()] = value
+        k, v = arg.split("=", 1)
+        data[k.upper()] = v
 
     return data
 
 
-def download_image_to_memory(url: str) -> BytesIO:
+def download_image(url: str) -> BytesIO:
     r = session.get(url, timeout=30)
     r.raise_for_status()
 
@@ -99,7 +93,8 @@ def generate_task_gen1():
     return r.json()["task_id"]
 
 
-def wait_for_image(task_id: str, timeout=300) -> str:
+def wait_for_image(task_id: str, timeout=300):
+    import time
     start = time.time()
 
     while True:
@@ -108,33 +103,30 @@ def wait_for_image(task_id: str, timeout=300) -> str:
             timeout=30,
         )
         r.raise_for_status()
-        payload = r.json()
 
-        image_url = payload.get("image_url")
+        image_url = r.json().get("image_url")
         if image_url:
             return image_url
 
         if time.time() - start > timeout:
-            raise TimeoutError("Image generation timeout")
+            raise TimeoutError("Image timeout")
 
         time.sleep(2)
 
-# ========= GENERATOR 2 (FINAL, NO PREVIEW) =========
+# ========= GENERATOR 2 (CORRECT FLOW) =========
 
-def generate_task_gen2(data: dict, image_bytes: BytesIO) -> str:
+def generate_task_gen2(data: dict, image_bytes: BytesIO | None):
     files = {
-        "generator": (None, "uk_passport_new_fast"),  # YOUR GENERATOR SLUG
+        "generator": (None, "testingforchatgpt1"),
         "data": (
             None,
             json.dumps(data),
             "application/json",
         ),
-        "image1": (
-            "input.jpg",
-            image_bytes,
-            "image/jpeg",
-        ),
     }
+
+    if image_bytes:
+        files["image1"] = ("input.jpg", image_bytes, "image/jpeg")
 
     r = session.post(
         f"{API_BASE}/generate/",
@@ -145,13 +137,21 @@ def generate_task_gen2(data: dict, image_bytes: BytesIO) -> str:
     return r.json()["task_id"]
 
 
-def pay_for_result(task_id: str):
+def pay_for_result(task_id: str) -> str:
     r = session.post(
         f"{API_BASE}/pay-for-result/",
         json={"task_id": task_id},
         timeout=30,
     )
     r.raise_for_status()
+
+    payload = r.json()
+    image_url = payload.get("image_url")
+
+    if not image_url:
+        raise Exception("Payment succeeded but no image_url returned")
+
+    return image_url
 
 # ========= TELEGRAM HANDLERS =========
 
@@ -166,33 +166,24 @@ async def handle_photo(update, context: ContextTypes.DEFAULT_TYPE):
 
     user_images[update.effective_user.id] = bio
 
-    await update.message.reply_text(
-        "📸 Image received.\n"
-        "Now run:\n"
-        "/test2 LN=DOE FN=\"JOHN LEE\" DOB=123456 SEX=M"
-    )
+    await update.message.reply_text("📸 Image saved. Now run /test2 …")
 
 
 async def test(update, context: ContextTypes.DEFAULT_TYPE):
     loop = asyncio.get_running_loop()
 
     try:
-        await update.message.reply_text("🚀 Generating (generator 1)…")
+        await update.message.reply_text("🚀 Generator 1 running…")
 
         task_id = await loop.run_in_executor(None, generate_task_gen1)
-
         image_url = await loop.run_in_executor(
             None, lambda: wait_for_image(task_id)
         )
-
         photo = await loop.run_in_executor(
-            None, lambda: download_image_to_memory(image_url)
+            None, lambda: download_image(image_url)
         )
 
-        await update.message.reply_photo(
-            photo=photo,
-            caption="🧪 GENERATOR 1 RESULT",
-        )
+        await update.message.reply_photo(photo=photo)
 
     except Exception as e:
         await update.message.reply_text(f"❌ ERROR:\n{e}")
@@ -203,47 +194,35 @@ async def test2(update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
 
     try:
-        if user_id not in user_images:
-            await update.message.reply_text("❌ Please send an image first.")
-            return
-
         if not context.args:
             await update.message.reply_text(
-                "Usage:\n"
-                "/test2 LN=DOE FN=\"JOHN LEE\" DOB=123456 SEX=M"
+                "/test2 LN=DOE FN=\"JOHN LEE\" LOL=123456 SEX=M"
             )
             return
 
         data = parse_kv_args(" ".join(context.args))
+        image_bytes = user_images.get(user_id)
 
-        await update.message.reply_text("💳 Generating & paying (generator 2)…")
+        await update.message.reply_text("💳 Generating & paying…")
 
         task_id = await loop.run_in_executor(
             None,
-            lambda: generate_task_gen2(
-                data,
-                user_images[user_id]
-            ),
-        )
-
-        await loop.run_in_executor(
-            None,
-            lambda: pay_for_result(task_id)
+            lambda: generate_task_gen2(data, image_bytes)
         )
 
         image_url = await loop.run_in_executor(
             None,
-            lambda: wait_for_image(task_id)
+            lambda: pay_for_result(task_id)
         )
 
         photo = await loop.run_in_executor(
             None,
-            lambda: download_image_to_memory(image_url)
+            lambda: download_image(image_url)
         )
 
         await update.message.reply_photo(
             photo=photo,
-            caption="✅ GENERATOR 2 FINAL (PAID)",
+            caption="✅ FINAL RESULT (PAID)",
         )
 
     except Exception as e:
