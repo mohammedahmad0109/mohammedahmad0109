@@ -1,8 +1,7 @@
 // runner.js
 function parseLine(line) {
-  // match email:password anywhere in the line
   const match = line.match(
-    /([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})\s*[:|]\s*([^\s|,;]+)/ // email : password
+    /([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})\:([^\s]+)/ 
   );
 
   if (!match) return null;
@@ -26,11 +25,12 @@ const logins = process.env.LOGINS.split('\n');
 
   for (const line of logins) {
     const parsed = parseLine(line);
-if (!parsed) continue;
+if (!parsed) {
+  console.log('SKIPPED:', line);
+  continue;
+}
 
 const { email, password } = parsed;
-    if (!email || !password) continue;
-
     try {
       await page.goto(LOGIN_URL, { waitUntil: 'networkidle' });
 
