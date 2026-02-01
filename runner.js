@@ -1,7 +1,7 @@
 // runner.js
 const { chromium } = require('playwright');
 
-const LOGIN_URL = 'https://YOUR_SITE.com/login';
+const LOGIN_URL = 'https://www.argos.co.uk/login?pageName=account&successUrl=%2Fmy-account%2Fhome';
 const logins = process.env.LOGINS.split('\n');
 
 (async () => {
