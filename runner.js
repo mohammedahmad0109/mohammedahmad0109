@@ -1,4 +1,17 @@
 // runner.js
+function parseLine(line) {
+  // match email:password anywhere in the line
+  const match = line.match(
+    /([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})\s*[:|]\s*([^\s|,;]+)/ // email : password
+  );
+
+  if (!match) return null;
+
+  return {
+    email: match[1],
+    password: match[2]
+  };
+}
 const { chromium } = require('playwright');
 
 const LOGIN_URL = 'https://www.argos.co.uk/login?pageName=account&successUrl=%2Fmy-account%2Fhome';
@@ -12,7 +25,10 @@ const logins = process.env.LOGINS.split('\n');
   let fail = 0;
 
   for (const line of logins) {
-    const [email, password] = line.split('|');
+    const parsed = parseLine(line);
+if (!parsed) continue;
+
+const { email, password } = parsed;
     if (!email || !password) continue;
 
     try {
