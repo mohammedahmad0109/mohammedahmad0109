@@ -4,7 +4,8 @@
   "private": true,
   "type": "commonjs",
   "scripts": {
-    "start": "node bot.js"
+    "start": "node bot.js",
+    "postinstall": "npx playwright install chromium"
   },
   "dependencies": {
     "node-telegram-bot-api": "^0.66.0",
