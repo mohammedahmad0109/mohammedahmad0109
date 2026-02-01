@@ -25,31 +25,45 @@ const logins = process.env.LOGINS.split('\n');
 
   for (const line of logins) {
     const parsed = parseLine(line);
-if (!parsed) {
-  console.log('SKIPPED:', line);
-  continue;
-}
-
-const { email, password } = parsed;
-    try {
-      await page.goto(LOGIN_URL, { waitUntil: 'networkidle' });
-
-      await page.fill('input[name=email]', email.trim());
-      await page.fill('input[name=password]', password.trim());
-      await page.click('button[type=submit]');
-
-      await page.waitForSelector('text=Logout', { timeout: 5000 });
-
-      ok++;
-      console.log(`✅ ${email}`);
-    } catch {
-      fail++;
-      console.log(`❌ ${email}`);
+    if (!parsed) {
+      console.log('SKIPPED:', line);
+      continue;
     }
 
-    await page.waitForTimeout(1500); // IMPORTANT: rate limiting
+    const { email, password } = parsed;
+    console.log(`➡️ Trying ${email}`);
+
+    try {
+      await page.goto(LOGIN_URL, { waitUntil: 'domcontentloaded' });
+
+      await page.fill(
+        'input[type="email"], input[aria-label="Email address"]',
+        email
+      );
+
+      await page.fill(
+        'input[type="password"]',
+        password
+      );
+
+      await page.click('button:has-text("Sign in securely")');
+
+      // ✅ SUCCESS CHECK (pick ONE that applies)
+      await page.waitForURL(/dashboard|account|home/, { timeout: 7000 });
+
+      console.log(`✅ ${email}`);
+      ok++;
+    } catch (err) {
+      console.log(`❌ ${email}`);
+      fail++;
+    }
+
+    await page.waitForTimeout(1500); // rate safety
   }
 
-  console.log(`\nRESULTS\nOK: ${ok}\nFAIL: ${fail}`);
+  console.log(`\nRESULTS`);
+  console.log(`OK: ${ok}`);
+  console.log(`FAIL: ${fail}`);
+
   await browser.close();
 })();
